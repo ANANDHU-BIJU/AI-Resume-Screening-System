@@ -13,6 +13,8 @@
 
 > **An AI-powered resume screening platform that automatically analyzes resumes, extracts skills, matches them with job descriptions, and ranks candidates using Natural Language Processing (NLP).**
 
+**Live Demo:** https://ai-resume-screening-system-project.streamlit.app/
+
 ---
 
 ##  Features
