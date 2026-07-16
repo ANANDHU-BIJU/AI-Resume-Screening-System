@@ -11,7 +11,8 @@ import re
 from src.pdf_parser import extract_text
 from src.preprocess import clean_text
 from src.entity_extractor import extract_entities
-from src.skill_extractor import extract_skills
+from src.jd_parser import extract_skills  # was src.skill_extractor (removed — see below)
+from src.resume_evaluator import evaluate_resume
 
 
 # ---------------------------------------------------
@@ -163,42 +164,16 @@ def extract_certifications(text):
 # ---------------------------------------------------
 # Resume Score
 # ---------------------------------------------------
-
-def calculate_resume_score(resume):
-
-    score = 0
-
-    if resume["name"]:
-        score += 10
-
-    if resume["email"]:
-        score += 10
-
-    if resume["phone"]:
-        score += 10
-
-    if resume["linkedin"]:
-        score += 5
-
-    if resume["github"]:
-        score += 5
-
-    if resume["skills"]:
-        score += 25
-
-    if resume["education"]:
-        score += 10
-
-    if resume["experience"]["details"]:
-        score += 10
-
-    if resume["projects"]:
-        score += 10
-
-    if resume["certifications"]:
-        score += 5
-
-    return min(score, 100)
+#
+# FIX: this module previously had its own calculate_resume_score(), a
+# simple presence-check scorer, while resume_evaluator.py had a second,
+# more detailed scorer under the SAME function name (weighing skill count,
+# strong-skill keywords, certifications, projects, experience). Two
+# functions with the same name computing different numbers meant "resume
+# score" could mean different things depending on which code path ran —
+# a real risk of confusing HR-facing output. resume_evaluator.evaluate_resume()
+# is now the single source of truth; it also folds in biodata format
+# validation (name/email/phone/LinkedIn/GitHub checks) in the same call.
 
 
 # ---------------------------------------------------
@@ -240,7 +215,14 @@ def parse_resume(pdf_path):
     entities = extract_entities(raw_text)
 
     # Extract skills
-    skills = extract_skills(cleaned_text)
+    # FIX: was extract_skills(cleaned_text). clean_text() strips punctuation,
+    # which silently broke matching for symbol-bearing skills like "c++"
+    # and "c#" (they became "c" before the skill list was checked). Skills
+    # are matched against the raw text via regex, using jd_parser's
+    # skills_db.txt-backed extractor — the same list app.py's live scoring
+    # path already uses (skill_extractor.py's separate, smaller hardcoded
+    # list has been removed to avoid two skill lists drifting apart).
+    skills = extract_skills(raw_text)
 
     # Extract resume sections
     education = extract_education(raw_text)
@@ -280,6 +262,9 @@ def parse_resume(pdf_path):
 
     }
 
-    resume["resume_score"] = calculate_resume_score(resume)
+    evaluation = evaluate_resume(resume)
+    resume["resume_score"] = evaluation["resume_score"]
+    resume["format_valid"] = evaluation["format_valid"]
+    resume["format_issues"] = evaluation["format_issues"]
 
     return resume
