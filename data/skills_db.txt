@@ -1,0 +1,315 @@
+Python
+Java
+JavaScript
+TypeScript
+C++
+C#
+C
+Go
+Rust
+Ruby
+PHP
+Swift
+Kotlin
+Scala
+R
+MATLAB
+Perl
+Dart
+Objective-C
+Shell Scripting
+Bash
+PowerShell
+SQL
+HTML
+CSS
+React
+React Native
+Angular
+Vue.js
+Next.js
+Node.js
+Express.js
+Django
+Flask
+FastAPI
+Spring
+Spring Boot
+ASP.NET
+Laravel
+Ruby on Rails
+jQuery
+Bootstrap
+Tailwind CSS
+Redux
+GraphQL
+REST API
+WebSockets
+Microservices
+gRPC
+MySQL
+PostgreSQL
+MongoDB
+SQLite
+Oracle
+Microsoft SQL Server
+Redis
+Cassandra
+DynamoDB
+Firebase
+Elasticsearch
+Neo4j
+MariaDB
+Snowflake
+BigQuery
+AWS
+Azure
+Google Cloud Platform
+GCP
+Docker
+Kubernetes
+Terraform
+Ansible
+Jenkins
+CI/CD
+GitHub Actions
+GitLab CI
+CircleCI
+Travis CI
+Linux
+Unix
+Windows Server
+Nginx
+Apache
+Cloud Computing
+Serverless
+Lambda
+EC2
+S3
+CloudFormation
+DevOps
+Site Reliability Engineering
+SRE
+Machine Learning
+Deep Learning
+Artificial Intelligence
+Natural Language Processing
+NLP
+Computer Vision
+Neural Networks
+TensorFlow
+PyTorch
+Keras
+Scikit-learn
+Pandas
+NumPy
+SciPy
+OpenCV
+Sentence Transformers
+Hugging Face
+LangChain
+spaCy
+NLTK
+XGBoost
+LightGBM
+Data Science
+Data Analysis
+Data Engineering
+Data Visualization
+Big Data
+Hadoop
+Spark
+Apache Kafka
+Apache Airflow
+ETL
+Power BI
+Tableau
+Looker
+Excel
+Statistics
+Probability
+A/B Testing
+Predictive Modeling
+Time Series Analysis
+Recommendation Systems
+Reinforcement Learning
+Generative AI
+LLM
+Prompt Engineering
+MLOps
+Model Deployment
+Feature Engineering
+Git
+GitHub
+GitLab
+Bitbucket
+Jira
+Confluence
+Agile
+Scrum
+Kanban
+Project Management
+Product Management
+Software Development Life Cycle
+SDLC
+Test Driven Development
+TDD
+Unit Testing
+Integration Testing
+Selenium
+PyTest
+JUnit
+Postman
+API Testing
+QA
+Quality Assurance
+Manual Testing
+Automation Testing
+Cybersecurity
+Network Security
+Penetration Testing
+Ethical Hacking
+Cryptography
+OAuth
+JWT
+Identity and Access Management
+IAM
+Firewall Configuration
+SIEM
+Vulnerability Assessment
+Android Development
+iOS Development
+Flutter
+Mobile App Development
+Unity
+Game Development
+Unreal Engine
+AR/VR Development
+Blockchain
+Solidity
+Smart Contracts
+Web3
+Cryptocurrency
+Communication
+Leadership
+Teamwork
+Problem Solving
+Critical Thinking
+Time Management
+Adaptability
+Collaboration
+Presentation Skills
+Negotiation
+Decision Making
+Conflict Resolution
+Creativity
+Attention to Detail
+Customer Service
+Stakeholder Management
+Business Analysis
+Financial Modeling
+Accounting
+Bookkeeping
+Budgeting
+Risk Management
+Supply Chain Management
+Operations Management
+Sales
+Digital Marketing
+SEO
+SEM
+Content Marketing
+Social Media Marketing
+Email Marketing
+Google Analytics
+CRM
+Salesforce
+HubSpot
+SAP
+Microsoft Office
+PowerPoint
+Word
+Photoshop
+Illustrator
+Figma
+Adobe XD
+Sketch
+UI Design
+UX Design
+User Research
+Wireframing
+Prototyping
+Video Editing
+Premiere Pro
+After Effects
+Technical Writing
+Public Speaking
+Mentoring
+Recruiting
+HR Management
+Payroll Management
+Legal Compliance
+Contract Management
+VLSI Design
+Embedded Systems
+Microcontrollers
+PCB Design
+Circuit Design
+Digital Signal Processing
+DSP
+Analog Electronics
+Digital Electronics
+Communication Systems
+Wireless Communication
+5G Technology
+Antenna Design
+RF Engineering
+FPGA
+ASIC Design
+Verilog HDL
+VHDL
+MATLAB Simulink
+Control Systems
+Power Electronics
+Robotics
+IoT Systems
+Sensors
+Signal Processing
+Network Protocols
+Telecommunications
+Satellite Communication
+Optical Fiber Communication
+CAD
+AutoCAD
+SolidWorks
+CATIA
+ANSYS
+Mechanical Design
+Thermodynamics
+Fluid Mechanics
+Manufacturing Processes
+CNC Machining
+Structural Analysis
+Finite Element Analysis
+FEA
+Civil Engineering
+Construction Management
+AutoCAD Civil 3D
+Surveying
+Structural Engineering
+Project Estimation
+Building Information Modeling
+BIM
+STAAD Pro
+Quantity Surveying
+Chemical Engineering
+Process Engineering
+Plant Design
+Six Sigma
+Lean Manufacturing
+Quality Control
+Industrial Engineering
+Operations Research
+ERP Systems
+Inventory Management
+Logistics
