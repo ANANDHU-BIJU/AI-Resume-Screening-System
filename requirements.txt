@@ -6,3 +6,4 @@ scikit-learn
 spacy
 PyMuPDF
 nltk
+cryptography>=49.0.0
