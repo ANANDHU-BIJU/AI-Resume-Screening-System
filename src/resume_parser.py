@@ -11,7 +11,7 @@ import re
 from src.pdf_parser import extract_text
 from src.preprocess import clean_text
 from src.entity_extractor import extract_entities
-from src.jd_parser import extract_skills  # was src.skill_extractor (removed — see below)
+from src.skill_extractor import extract_skills
 from src.resume_evaluator import evaluate_resume
 
 
