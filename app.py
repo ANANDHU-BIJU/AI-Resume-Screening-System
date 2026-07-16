@@ -12,6 +12,10 @@ from io import BytesIO
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+# ── New feature imports ──
+from src.encryption_utils import encrypt_file, decrypt_file, encrypt_bytes, decrypt_bytes
+from src.fake_resume_detector import detect_fake_resume
+
 from PIL import Image
 
 logo_icon = Image.open("assets/logo.png")
@@ -47,6 +51,8 @@ try:
     from src.pdf_parser import extract_text as extract_pdf_text
     from src.jd_parser import extract_skills as extract_jd_skills
     from src.jd_resume_matcher import evaluate_candidate
+    from src.entity_extractor import extract_entities
+    from src.resume_validator import validate_resume
 except Exception:
     BACKEND_READY = False
     BACKEND_ERROR = traceback.format_exc()
@@ -127,16 +133,53 @@ USERS_FILE = "data/users.json"
 def load_users():
     if os.path.exists(USERS_FILE):
         with open(USERS_FILE, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+        # Migrate legacy flat-hash entries to structured format
+        for uname, uval in data.items():
+            if isinstance(uval, str):
+                # Legacy: bare hash string → wrap with default role
+                data[uname] = {"hash": uval, "salt": "", "role": "Recruiter"}
+            elif isinstance(uval, dict) and "role" not in uval:
+                uval["role"] = "Recruiter"  # existing salted but no role
+        return data
     return {}
 
 def save_users(users):
     os.makedirs("data", exist_ok=True)
     with open(USERS_FILE, "w") as f:
-        json.dump(users, f)
+        json.dump(users, f, indent=2)
 
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+def get_user_role(username: str) -> str:
+    """Return 'Admin' or 'Recruiter' for the given user."""
+    users = load_users()
+    entry = users.get(username, {})
+    if isinstance(entry, dict):
+        return entry.get("role", "Recruiter")
+    return "Recruiter"
+
+def is_admin() -> bool:
+    """Check if the currently logged-in user is an Admin."""
+    return get_user_role(st.session_state.get("current_user", "")) == "Admin"
+
+def hash_password(password, salt=None):
+    # FIX: previously this was a bare, unsalted SHA-256 hash of the
+    # password. Unsalted hashes are vulnerable to precomputed rainbow-table
+    # attacks if users.json is ever leaked. Each user now gets a random
+    # per-account salt stored alongside their hash.
+    if salt is None:
+        salt = os.urandom(16).hex()
+    digest = hashlib.sha256((salt + password).encode()).hexdigest()
+    return {"hash": digest, "salt": salt}
+
+
+def verify_password(password, stored):
+    if not isinstance(stored, dict):
+        # Legacy unsalted account from before this fix — still supported
+        # so existing users aren't locked out.
+        return hashlib.sha256(password.encode()).hexdigest() == stored
+    salt = stored.get("salt", "")
+    digest = hashlib.sha256((salt + password).encode()).hexdigest()
+    return digest == stored.get("hash")
 
 def auth_screen():
     if st.session_state.get("authenticated"):
@@ -160,9 +203,12 @@ def auth_screen():
             username = st.text_input("Username", key="login_user")
             password = st.text_input("Password", type="password", key="login_pass")
             if st.button("Login", use_container_width=True):
-                if username in users and users[username] == hash_password(password):
+                # FIX: now checks against the salted-hash structure via
+                # verify_password() instead of a plain string equality check.
+                if username in users and verify_password(password, users[username]):
                     st.session_state["authenticated"] = True
                     st.session_state["current_user"] = username
+                    st.session_state["user_role"] = get_user_role(username)
                     st.rerun()
                 else:
                     st.error("Invalid username or password.")
@@ -171,6 +217,7 @@ def auth_screen():
             new_username = st.text_input("Choose a username", key="signup_user")
             new_password = st.text_input("Choose a password", type="password", key="signup_pass")
             confirm_password = st.text_input("Confirm password", type="password", key="signup_confirm")
+            role = st.selectbox("Role", ["Recruiter", "Admin"], key="signup_role")
             if st.button("Create Account", use_container_width=True):
                 if not new_username or not new_password:
                     st.error("Username and password cannot be empty.")
@@ -179,9 +226,11 @@ def auth_screen():
                 elif new_password != confirm_password:
                     st.error("Passwords do not match.")
                 else:
-                    users[new_username] = hash_password(new_password)
+                    cred = hash_password(new_password)
+                    cred["role"] = role
+                    users[new_username] = cred
                     save_users(users)
-                    st.success("Account created! Please log in using the Login tab.")
+                    st.success(f"Account created as {role}! Please log in.")
 
     return False
 
@@ -216,22 +265,33 @@ def get_dummy_results(resumes):
         results.append({"Candidate": f.name, "Score": base["Score"], "Matched": base["Matched"], "Missing": base["Missing"]})
     return sorted(results, key=lambda x: x["Score"], reverse=True)
 
-def save_uploaded_file(uploaded_file, folder):
+def save_raw_bytes(raw, filename, folder, encrypt=True):
+    """Write *raw* bytes to *folder*/*filename*, optionally encrypting at rest."""
     os.makedirs(folder, exist_ok=True)
-    path = os.path.join(folder, uploaded_file.name)
-    uploaded_file.seek(0)
+    path = os.path.join(folder, filename)
     with open(path, "wb") as out:
-        out.write(uploaded_file.read())
+        out.write(encrypt_bytes(raw) if encrypt else raw)
     return path
 
 def extract_text_any(uploaded_file, save_folder):
-    """Extract text from an uploaded PDF or TXT file."""
+    """
+    Extract text from an uploaded PDF or TXT file.
+
+    FIX: previously this saved the file to disk (encrypted) FIRST and then
+    tried to run PyMuPDF text extraction on that same encrypted file, which
+    always failed (fitz can't parse Fernet ciphertext) and silently forced
+    every "real" analysis run into the demo-data fallback. Text is now
+    extracted from the original in-memory bytes, and the encrypted copy is
+    written to disk separately, purely for storage.
+    """
+    uploaded_file.seek(0)
+    raw_bytes = uploaded_file.read()
     if uploaded_file.name.lower().endswith(".pdf"):
-        path = save_uploaded_file(uploaded_file, save_folder)
-        return extract_pdf_text(path)
+        text = extract_pdf_text(BytesIO(raw_bytes))
+        save_raw_bytes(raw_bytes, uploaded_file.name, save_folder)
+        return text
     else:
-        uploaded_file.seek(0)
-        raw_bytes = uploaded_file.read()
+        save_raw_bytes(raw_bytes, uploaded_file.name, save_folder)
         try:
             return raw_bytes.decode("utf-8")
         except UnicodeDecodeError:
@@ -245,6 +305,7 @@ def get_real_results(resumes, jd_text):
     candidates = []
     for f in resumes:
         resume_text = extract_text_any(f, "data/resumes")
+        pdf_path = os.path.join("data/resumes", f.name) if f.name.lower().endswith(".pdf") else None
 
         if not resume_text or not resume_text.strip():
             candidates.append({
@@ -252,16 +313,31 @@ def get_real_results(resumes, jd_text):
                 "Score": 0,
                 "Matched": [],
                 "Missing": jd_skills,
+                "_resume_text": "",
+                "_pdf_path": pdf_path,
+                "_entities": {},
+                "_validation": {"verdict": "Rejected", "issues": ["No extractable text in PDF"],
+                                 "spelling_errors": [], "spelling_error_count": 0},
             })
             continue
 
         match_result = evaluate_candidate(jd_text, jd_skills, resume_text)
+
+        # Entity extraction (name/email/phone/linkedin/github) + validation
+        # (missing fields, malformed phone/email, spelling) — this was
+        # previously extracted but never surfaced anywhere in the app.
+        entities = extract_entities(resume_text)
+        validation = validate_resume(resume_text, entities)
 
         candidates.append({
             "Candidate": f.name,
             "Score": match_result["score"],
             "Matched": match_result["matched"],
             "Missing": match_result["missing"],
+            "_resume_text": resume_text,
+            "_pdf_path": pdf_path,
+            "_entities": entities,
+            "_validation": validation,
         })
 
     return sorted(candidates, key=lambda x: x["Score"], reverse=True)
@@ -281,10 +357,41 @@ with st.sidebar:
         st.image("assets/logo.png", width=45)
     with col2:
         st.markdown("### Resumind")
-    st.caption(f"Logged in as **{st.session_state.get('current_user', 'Guest')}**")
+    user_display = st.session_state.get('current_user', 'Guest')
+    role_display = st.session_state.get('user_role', 'Recruiter')
+    st.caption(f"Logged in as **{user_display}** · `{role_display}`")
     if st.button("Logout"):
-        st.session_state["authenticated"] = False
+        # FIX: previously only cleared auth flags, leaving the last user's
+        # uploaded files and analysis results in session_state — the next
+        # person to log in (any account) would still see them. Logout now
+        # wipes the whole analysis/session state, not just auth.
+        for key in ["authenticated", "current_user", "user_role", "resumes",
+                    "jd_file", "jd_text", "jd_skills", "analyzed", "results"]:
+            st.session_state.pop(key, None)
         st.rerun()
+
+    # ── Admin-only: change any user's role ──
+    # This is currently the only way to switch a user between Recruiter and
+    # Admin after signup (signup only sets the initial role once).
+    if is_admin():
+        with st.expander("🔧 Manage user roles"):
+            users = load_users()
+            other_users = [u for u in users if u != user_display]
+            if not other_users:
+                st.caption("No other accounts yet.")
+            else:
+                target = st.selectbox("Account", other_users, key="role_target")
+                current_role = get_user_role(target)
+                new_role = st.selectbox(
+                    "Role", ["Recruiter", "Admin"],
+                    index=["Recruiter", "Admin"].index(current_role),
+                    key="role_new_value"
+                )
+                if st.button("Update role", key="role_update_btn"):
+                    users[target]["role"] = new_role
+                    save_users(users)
+                    st.success(f"{target} is now **{new_role}**.")
+                    st.rerun()
     st.divider()
     page = st.radio("Navigate", ["Dashboard", "Upload", "Results", "Compare"], label_visibility="collapsed")
     st.divider()
@@ -297,7 +404,7 @@ with st.sidebar:
 # =================== HEADER ===================
 st.markdown("""
     <div class="main-header">
-        <h1>📄 Intelligent Resume Screening Platform</h1>
+        <h1>📄 AI-Powered Resume Screening and Candidate Evaluation System</h1>
         <p>Upload resumes and a job description to automatically extract skills,
         match candidates, and rank them with explainable scores.</p>
     </div>
@@ -429,52 +536,97 @@ elif page == "Results":
                     st.markdown("".join(f'<span class="skill-tag-missing">✘ {s}</span>' for s in r["Missing"]) or "None", unsafe_allow_html=True)
                 getattr(st, kind)(f"Recommendation: {label}")
 
+                # ── Candidate Details (entity extraction) ──
+                st.markdown("**Candidate Details**")
+                ent = r.get("_entities", {})
+                if ent:
+                    dcol1, dcol2 = st.columns(2)
+                    with dcol1:
+                        st.write(f"👤 Name: {ent.get('name') or '—'}")
+                        st.write(f"✉️ Email: {ent.get('email') or '—'}")
+                        st.write(f"📞 Phone: {ent.get('phone') or '—'}")
+                    with dcol2:
+                        st.write(f"🔗 LinkedIn: {ent.get('linkedin') or '—'}")
+                        st.write(f"💻 GitHub: {ent.get('github') or '—'}")
+                else:
+                    st.caption("ℹ Candidate details unavailable.")
+
+                # ── Validation (missing fields, malformed contact info, spelling) ──
+                val = r.get("_validation", {})
+                if val:
+                    verdict = val.get("verdict", "—")
+                    verdict_colors = {"Accepted": "🟢", "Flagged": "🟡", "Rejected": "🔴"}
+                    st.markdown(f"**Validation Verdict** {verdict_colors.get(verdict, '')} `{verdict}`")
+                    for issue in val.get("issues", []):
+                        st.warning(f"⚠ {issue}")
+                    if val.get("spelling_error_count", 0) > 0:
+                        with st.popover(f"{val['spelling_error_count']} possible spelling issues"):
+                            st.write(", ".join(val.get("spelling_errors", [])) or "None")
+
+                # ── Fake Resume Detection ──
+                resume_text = r.get("_resume_text", "")
+                if resume_text:
+                    fraud = detect_fake_resume(resume_text, r.get("_pdf_path"))
+                    risk = fraud["risk_level"]
+                    risk_colors = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟠", "CLEAN": "🟢"}
+                    st.markdown(f"**Authenticity Check** {risk_colors.get(risk, '')} `{risk}`")
+                    if fraud["checks"]:
+                        for chk in fraud["checks"]:
+                            if chk["flagged"]:
+                                st.warning(f"⚠ {chk['label']}: {chk['details']}")
+                else:
+                    st.caption("ℹ Authenticity check unavailable (no extracted text).")
+
         st.divider()
         st.subheader("Shortlist & Export")
 
-        min_score = st.slider("Minimum match score to shortlist", 0, 100, 70)
-        shortlisted = [r for r in results if r["Score"] >= min_score]
-        st.caption(f"{len(shortlisted)} of {len(results)} candidates meet this threshold.")
-
-        if shortlisted:
-            export_rows = []
-            for r in shortlisted:
-                label, _ = recommendation(r["Score"])
-                export_rows.append({
-                    "Candidate": r["Candidate"],
-                    "Match Score (%)": r["Score"],
-                    "Matched Skills": ", ".join(r["Matched"]),
-                    "Missing Skills": ", ".join(r["Missing"]) or "None",
-                    "Recommendation": label,
-                })
-            df_export = pd.DataFrame(export_rows)
-
-            colA, colB = st.columns(2)
-            with colA:
-                st.download_button(
-                    "⬇ Download CSV",
-                    df_export.to_csv(index=False),
-                    "shortlisted_candidates.csv",
-                    "text/csv",
-                    use_container_width=True
-                )
-            with colB:
-                buffer = BytesIO()
-                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                    df_export.to_excel(writer, index=False, sheet_name="Shortlist")
-                    worksheet = writer.sheets["Shortlist"]
-                    for i, col in enumerate(df_export.columns):
-                        max_len = max(df_export[col].astype(str).map(len).max(), len(col)) + 4
-                        worksheet.column_dimensions[chr(65 + i)].width = max_len
-                st.download_button(
-                    "⬇ Download Excel (.xlsx)",
-                    buffer.getvalue(),
-                    "shortlisted_candidates.xlsx",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
+        # ── ROLE GATE: Only Admins can view ALL shortlists & export ──
+        if not is_admin():
+            st.info("🔒 Viewing all shortlists and exporting data is restricted to **Admin** users.")
         else:
-            st.info("No candidates meet this score threshold yet.")
+            min_score = st.slider("Minimum match score to shortlist", 0, 100, 70)
+            shortlisted = [r for r in results if r["Score"] >= min_score]
+            st.caption(f"{len(shortlisted)} of {len(results)} candidates meet this threshold.")
+
+            if shortlisted:
+                export_rows = []
+                for r in shortlisted:
+                    label, _ = recommendation(r["Score"])
+                    export_rows.append({
+                        "Candidate": r["Candidate"],
+                        "Match Score (%)": r["Score"],
+                        "Matched Skills": ", ".join(r["Matched"]),
+                        "Missing Skills": ", ".join(r["Missing"]) or "None",
+                        "Recommendation": label,
+                    })
+                df_export = pd.DataFrame(export_rows)
+
+                colA, colB = st.columns(2)
+                with colA:
+                    st.download_button(
+                        "⬇ Download CSV",
+                        df_export.to_csv(index=False),
+                        "shortlisted_candidates.csv",
+                        "text/csv",
+                        use_container_width=True
+                    )
+                with colB:
+                    buffer = BytesIO()
+                    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                        df_export.to_excel(writer, index=False, sheet_name="Shortlist")
+                        worksheet = writer.sheets["Shortlist"]
+                        for i, col in enumerate(df_export.columns):
+                            max_len = max(df_export[col].astype(str).map(len).max(), len(col)) + 4
+                            worksheet.column_dimensions[chr(65 + i)].width = max_len
+                    st.download_button(
+                        "⬇ Download Excel (.xlsx)",
+                        buffer.getvalue(),
+                        "shortlisted_candidates.xlsx",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+            else:
+                st.info("No candidates meet this score threshold yet.")
 
 # =================== COMPARE ===================
 elif page == "Compare":
