@@ -14,6 +14,17 @@ than NER for those.
 import re
 import spacy
 
+try:
+    from src.skill_extractor import SKILLS as _SKILL_TOKENS
+except Exception:
+    _SKILL_TOKENS = set()
+
+try:
+    from src.jd_parser import load_skill_set
+    _SKILL_PHRASES = {s.lower() for s in load_skill_set()}
+except Exception:
+    _SKILL_PHRASES = set()
+
 nlp = spacy.load("en_core_web_sm")
 
 EMAIL_PATTERN = re.compile(r"[\w\.\-+]+@[\w\-]+\.[\w\.\-]+")
@@ -107,6 +118,14 @@ def _looks_like_name(candidate: str) -> bool:
         return False
     words = candidate.split()
     if not (1 <= len(words) <= 4):
+        return False
+    # Reject lines that are actually skills/tech terms picked up from a
+    # sidebar or tools list near the top of the document (e.g. "Raspberry
+    # Pi", "Machine Learning") — these pass every shape check above but
+    # are never a person's name.
+    if any(w.lower() in _SKILL_TOKENS for w in words):
+        return False
+    if candidate.lower() in _SKILL_PHRASES:
         return False
     # Mostly alphabetic (allow spaces, dots, hyphens, apostrophes for
     # names like "Jean-Luc" or "O'Brien" or middle initials).
